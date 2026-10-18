@@ -21,7 +21,10 @@ export class CameraDirector {
 
   openingFrame() {
     const { width, height } = this.size;
-    return frameFor(width, height, SETTLEMENT_BOUNDS, width / height > 2 ? 0.11 : 0.075);
+    const padding = width / height > 2 ? 0.08 : 0.06;
+    const px = width * padding; const py = height * padding;
+    const zoom = Math.max((width - 2 * px) / SETTLEMENT_BOUNDS.width, (height - 2 * py) / SETTLEMENT_BOUNDS.height);
+    return { zoom, x: SETTLEMENT_BOUNDS.x + SETTLEMENT_BOUNDS.width / 2, y: SETTLEMENT_BOUNDS.y + SETTLEMENT_BOUNDS.height / 2 };
   }
 
   finalFrame() {
@@ -48,24 +51,21 @@ export class CameraDirector {
 
   reveal({ duration = 7000, reducedMotion = false, onComplete } = {}) {
     const camera = this.scene.cameras.main;
-    const target = this.finalFrame();
     this.mode = 'reveal'; this.revealing = true; this.revealProgress = 0;
     if (reducedMotion) {
-      this.apply(target); this.mode = 'final'; this.revealing = false; this.revealProgress = 1;
+      this.apply(this.finalFrame()); this.mode = 'final'; this.revealing = false; this.revealProgress = 1;
       this.scene.time.delayedCall(350, () => onComplete?.());
       return;
     }
-    const startZoom = camera.zoom;
-    const startX = camera.midPoint.x;
-    const startY = camera.midPoint.y;
+    const start = { zoom: camera.zoom, x: camera.midPoint.x, y: camera.midPoint.y };
     this.scene.tweens.addCounter({
       from: 0, to: 1, duration, ease: 'Sine.easeInOut',
       onUpdate: (tween) => {
         const value = tween.getValue(); this.revealProgress = value;
-        camera.setZoom(Phaser.Math.Linear(startZoom, target.zoom, value));
-        camera.centerOn(Phaser.Math.Linear(startX, target.x, value), Phaser.Math.Linear(startY, target.y, value));
+        const target = this.finalFrame();
+        camera.setZoom(Phaser.Math.Linear(start.zoom, target.zoom, value)); camera.centerOn(Phaser.Math.Linear(start.x, target.x, value), Phaser.Math.Linear(start.y, target.y, value));
       },
-      onComplete: () => { this.mode = 'final'; this.revealing = false; this.revealProgress = 1; this.apply(target); onComplete?.(); },
+      onComplete: () => { this.mode = 'final'; this.revealing = false; this.revealProgress = 1; this.apply(this.finalFrame()); onComplete?.(); },
     });
   }
 

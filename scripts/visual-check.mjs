@@ -2,162 +2,124 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const baseURL = process.env.WORLD_BEYOND_URL || 'http://127.0.0.1:4177/';
-const browser = await chromium.launch({
-  executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  headless: true,
-  args: ['--no-sandbox', '--disable-gpu'],
-});
-const outputDir = path.resolve('screenshots');
-await fs.mkdir(outputDir, { recursive: true });
-const reports = [];
-
-async function assertLayout(page, label) {
-  const metrics = await page.evaluate(() => {
-    const stage = document.querySelector('.world-stage').getBoundingClientRect();
-    const assistant = document.querySelector('.assistant').getBoundingClientRect();
-    return {
-      viewport: [innerWidth, innerHeight],
-      documentOverflow: document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight,
-      stageHeight: Math.round(stage.height),
-      stageRatio: Number((stage.height / innerHeight).toFixed(3)),
-      assistantBottom: Math.round(assistant.bottom),
-      inputVisible: Boolean(document.querySelector('#prompt-input')?.offsetParent),
-      canvas: [document.querySelector('canvas')?.width, document.querySelector('canvas')?.height],
-    };
-  });
-  if (metrics.documentOverflow) throw new Error(`${label}: document overflow`);
-  if (metrics.stageRatio < 0.55) throw new Error(`${label}: world stage below 55% (${metrics.stageRatio})`);
-  if (metrics.assistantBottom > metrics.viewport[1] + 1) throw new Error(`${label}: assistant clipped`);
-  reports.push({ label, ...metrics });
-}
+const baseURL = process.env.WORLD_BEYOND_URL || 'http://127.0.0.1:5173/';
+const browser = await chromium.launch({ executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', headless: true, args: ['--no-sandbox', '--disable-gpu'] });
+const outputDir = path.resolve('screenshots'); await fs.mkdir(outputDir, { recursive: true });
+const reports = []; const errors = [];
 
 async function begin(page) {
-  await page.goto(baseURL, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'BEGIN DEVELOPMENT' }).click();
-  await page.locator('[data-action-id="housing_cottages"], [data-action-id="housing_depot"]').first().waitFor();
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto(baseURL, { waitUntil: 'networkidle' }); await page.getByRole('button', { name: 'BEGIN DEVELOPMENT' }).click(); await page.locator('#prompt-input:not([disabled])').waitFor();
+  const initial = await page.evaluate(() => ({ state: window.__WORLD_BEYOND__.getState(), development: window.__WORLD_BEYOND__.development(), choices: window.__WORLD_BEYOND__.choices() }));
+  if (initial.state.world.buildings.length || initial.state.people.residents.length || initial.development !== 0 || initial.choices.length) throw new Error(`Invalid undeveloped start: ${JSON.stringify(initial)}`);
 }
 
-async function choose(page, actionId, nextId, typed) {
-  if (typed) {
-    await page.locator('#prompt-input').fill(typed);
-    await page.locator('#prompt-input').press('Enter');
-  } else {
-    await page.locator(`[data-action-id="${actionId}"]`).click();
+async function send(page, text) { await page.locator('#prompt-input:not([disabled])').fill(text); await page.locator('#prompt-input').press('Enter'); }
+async function expectNoChoices(page, label) { const choices = await page.evaluate(() => window.__WORLD_BEYOND__.choices()); if (choices.length) throw new Error(`${label}: options appeared without a new proposal: ${choices.join(', ')}`); }
+
+async function propose(page, text, expected) {
+  await send(page, text); await page.waitForFunction((labels) => labels.every((label) => window.__WORLD_BEYOND__.choices().includes(label)), expected, { timeout: 5000 });
+}
+
+async function waitForCommit(page, revision) {
+  await page.waitForFunction((before) => window.__WORLD_BEYOND__.getState().revision > before, revision, { timeout: 8000 });
+  await page.locator('#prompt-input:not([disabled])').waitFor({ timeout: 8000 }); await page.locator('.work-caption:not(.visible)').waitFor({ timeout: 8000 });
+}
+
+async function chooseProject(page, label, { double = false } = {}) {
+  const revision = await page.evaluate(() => window.__WORLD_BEYOND__.getState().revision);
+  await page.locator('.quick-actions').getByRole('button', { name: label, exact: true }).click();
+  const confirm = page.locator('.quick-actions').getByRole('button', { name: 'Confirm project', exact: true }); await confirm.waitFor();
+  if (double) await confirm.evaluate((element) => { element.click(); element.click(); }); else await confirm.click();
+  await waitForCommit(page, revision); await expectNoChoices(page, `${label} completion`);
+}
+
+async function chooseAction(page, label) {
+  const revision = await page.evaluate(() => window.__WORLD_BEYOND__.getState().revision); await page.locator('.quick-actions').getByRole('button', { name: label, exact: true }).click(); await waitForCommit(page, revision); await expectNoChoices(page, `${label} completion`);
+}
+
+async function welcome(page) { await send(page, 'Let us welcome residents'); await page.locator('.quick-actions').getByRole('button', { name: 'Welcome residents', exact: true }).waitFor(); await chooseAction(page, 'Welcome residents'); }
+async function trade(page) { await propose(page, 'We need more materials', ['Trade for materials']); await chooseAction(page, 'Trade for materials'); }
+
+async function verifyStickyPlacement(page) {
+  await propose(page, 'We need housing', ['Build cottages', 'Build apartments']);
+  await page.locator('.quick-actions').getByRole('button', { name: 'Build apartments', exact: true }).click();
+  const initial = await page.evaluate(() => window.__WORLD_BEYOND__.placement()); if (initial.mode !== 'selected' || !initial.valid) throw new Error(`CIVIC did not select a valid default: ${JSON.stringify(initial)}`);
+  const other = initial.plotId === 'plot-home-1' ? 'plot-home-6' : 'plot-home-1'; const point = await page.evaluate((id) => window.__WORLD_BEYOND__.screenForPlot(id), other);
+  await page.mouse.move(point.x, point.y); await page.mouse.move(1300, 760);
+  if ((await page.evaluate(() => window.__WORLD_BEYOND__.placement().plotId)) !== initial.plotId) throw new Error('Selected placement followed the pointer into chat');
+  await page.locator('.quick-actions').getByRole('button', { name: 'Change location', exact: true }).click(); await page.waitForFunction(() => window.__WORLD_BEYOND__.placement().mode === 'preview');
+  await page.mouse.move(point.x, point.y); await page.mouse.click(point.x, point.y); await page.waitForFunction((id) => window.__WORLD_BEYOND__.placement().mode === 'selected' && window.__WORLD_BEYOND__.placement().plotId === id, other);
+  await page.mouse.move(1370, 780); if ((await page.evaluate(() => window.__WORLD_BEYOND__.placement().plotId)) !== other) throw new Error('Clicked placement did not remain fixed');
+  const revision = await page.evaluate(() => window.__WORLD_BEYOND__.getState().revision); await page.getByRole('button', { name: 'Confirm project', exact: true }).click(); await waitForCommit(page, revision); await expectNoChoices(page, 'housing completion');
+}
+
+async function verifyProposalReplacement(page) {
+  await propose(page, 'We should encourage trade', ['Open a market', 'Build a trading depot']); await page.getByRole('button', { name: 'Open a market', exact: true }).click();
+  const oldConfirm = await page.getByRole('button', { name: 'Confirm project', exact: true }).elementHandle(); const revision = await page.evaluate(() => window.__WORLD_BEYOND__.getState().revision);
+  await send(page, 'Actually, build a workshop'); await page.waitForFunction(() => window.__WORLD_BEYOND__.placement()?.type === 'workshop');
+  await oldConfirm.evaluate((element) => element.click()); await page.waitForTimeout(250);
+  const afterOld = await page.evaluate(() => ({ revision: window.__WORLD_BEYOND__.getState().revision, placement: window.__WORLD_BEYOND__.placement() }));
+  if (afterOld.revision !== revision || afterOld.placement.type !== 'workshop') throw new Error(`Outdated market confirmation executed: ${JSON.stringify(afterOld)}`);
+  await page.getByRole('button', { name: 'Confirm project', exact: true }).click(); await waitForCommit(page, revision); await expectNoChoices(page, 'replacement completion');
+}
+
+async function finishAndReport(page, label, screenshot) {
+  await page.locator('.ending-copy.show-actions').waitFor({ timeout: 22000 }); const result = await page.evaluate(() => ({ status: window.__WORLD_BEYOND__.status(), development: window.__WORLD_BEYOND__.development(), state: window.__WORLD_BEYOND__.getState() }));
+  if (!result.status.complete || result.development !== 100 || result.status.population !== result.state.people.residents.length) throw new Error(`${label} inconsistent ending: ${JSON.stringify(result)}`);
+  reports.push({ label, development: result.development, population: result.status.population, residents: result.state.people.residents.map((item) => `${item.id}:${item.homeId}`), buildings: result.state.world.buildings.map((item) => `${item.type}:${item.plotId}`), regions: result.state.regions });
+  await page.screenshot({ path: path.join(outputDir, screenshot), fullPage: true }); await page.close();
+}
+
+async function routeOne() {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 820 }, reducedMotion: 'reduce' }); await begin(page);
+  await send(page, 'What should we do first?'); await expectNoChoices(page, 'question');
+  await propose(page, 'We need housing', ['Build cottages', 'Build apartments']); const revision = await page.evaluate(() => window.__WORLD_BEYOND__.getState().revision); const resources = await page.evaluate(() => window.__WORLD_BEYOND__.getState().resources);
+  await page.getByRole('button', { name: 'Build cottages', exact: true }).click(); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const cancelled = await page.evaluate(() => ({ revision: window.__WORLD_BEYOND__.getState().revision, resources: window.__WORLD_BEYOND__.getState().resources })); if (cancelled.revision !== revision || JSON.stringify(cancelled.resources) !== JSON.stringify(resources)) throw new Error('Cancellation changed authoritative state');
+  await verifyStickyPlacement(page); await welcome(page);
+  await propose(page, 'We need clean water', ['Add a water supply', 'Build a water loop']); await chooseProject(page, 'Add a water supply', { double: true });
+  await verifyProposalReplacement(page);
+  await propose(page, 'We need more housing', ['Build cottages', 'Build apartments']); await chooseProject(page, 'Build apartments'); await welcome(page);
+  await propose(page, 'We need dependable power', ['Install solar power', 'Raise a wind turbine']); await chooseProject(page, 'Raise a wind turbine');
+  await propose(page, 'We need timber production', ['Open a logging yard']); await chooseProject(page, 'Open a logging yard');
+  await trade(page);
+  await propose(page, 'We need a public space', ['Create a public garden']); await chooseProject(page, 'Create a public garden');
+  await finishAndReport(page, 'relocation and production route', 'fixes-final-route-one.png');
+}
+
+async function routeTwo() {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, reducedMotion: 'reduce' }); await begin(page);
+  await propose(page, 'We need simple housing', ['Build cottages', 'Build apartments']); await chooseProject(page, 'Build cottages'); await welcome(page);
+  await propose(page, 'The settlement needs a large water system', ['Install a water pump']); await chooseProject(page, 'Install a water pump');
+  await propose(page, 'We should encourage trade', ['Open a market', 'Build a trading depot']); await chooseProject(page, 'Open a market');
+  await propose(page, 'We need apartments', ['Build apartments']); await chooseProject(page, 'Build apartments'); await propose(page, 'We still need housing', ['Build cottages']); await chooseProject(page, 'Build cottages');
+  await welcome(page); await welcome(page); await trade(page);
+  await propose(page, 'We need solar energy', ['Install solar power']); await chooseProject(page, 'Install solar power');
+  await propose(page, 'We need a shared public space', ['Create a public garden']); await chooseProject(page, 'Create a public garden');
+  await finishAndReport(page, 'trade and water-pump route', 'fixes-final-route-two.png');
+}
+
+async function routeThree() {
+  const page = await browser.newPage({ viewport: { width: 1180, height: 700 }, reducedMotion: 'reduce' }); await begin(page);
+  await propose(page, 'We need compact housing', ['Build apartments']); await chooseProject(page, 'Build apartments'); await welcome(page);
+  await propose(page, 'Use an efficient water loop', ['Build a water loop']); await chooseProject(page, 'Build a water loop');
+  await propose(page, 'We should manufacture things', ['Open a workshop', 'Build a factory']); await chooseProject(page, 'Build a factory');
+  await propose(page, 'Add more apartments', ['Build apartments']); await chooseProject(page, 'Build apartments'); await welcome(page);
+  await trade(page); await propose(page, 'Wind power would suit us', ['Raise a wind turbine']); await chooseProject(page, 'Raise a wind turbine');
+  await propose(page, 'We need a public garden', ['Create a public garden']); await chooseProject(page, 'Create a public garden');
+  await finishAndReport(page, 'manufacturing route', 'fixes-final-route-three.png');
+}
+
+async function responsiveChecks() {
+  for (const [width, height] of [[1024, 700], [760, 700], [430, 760]]) {
+    const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce' }); await begin(page); if (width <= 760) { await page.getByRole('button', { name: /CIVIC/ }).click(); await page.locator('.experience:not(.chat-collapsed)').waitFor(); }
+    const metrics = await page.evaluate(() => { const objective = document.querySelector('.objective-card').getBoundingClientRect(); const development = document.querySelector('.development-card').getBoundingClientRect(); const dashboard = document.querySelector('.society-dashboard').getBoundingClientRect(); return { overflow: document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight, objective: [objective.left, objective.top, objective.right, objective.bottom], development: [development.left, development.top, development.right, development.bottom], dashboard: [dashboard.left, dashboard.top, dashboard.right, dashboard.bottom], statsFit: [...document.querySelectorAll('.society-dashboard .stat')].every((item) => item.getBoundingClientRect().right <= dashboard.right + 1) }; });
+    if (metrics.overflow || !metrics.statsFit) throw new Error(`${width}: invalid responsive layout ${JSON.stringify(metrics)}`); reports.push({ label: `${width}x${height}`, ...metrics }); await page.screenshot({ path: path.join(outputDir, `fixes-responsive-${width}x${height}.png`) }); await page.close();
   }
-  if (nextId) await page.locator(`[data-action-id="${nextId}"]`).waitFor({ state: 'visible', timeout: 8000 });
-}
-
-async function expansionRun() {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, reducedMotion: 'reduce' });
-  await begin(page); await assertLayout(page, '1280x720 opening gameplay');
-  await page.screenshot({ path: path.join(outputDir, 'opening-1280x720.png') });
-  await choose(page, 'housing_cottages', 'water_intake');
-  await choose(page, 'water_intake', 'energy_grid', 'Give everyone clean water');
-  await choose(page, 'energy_grid', 'materials_extract');
-  await choose(page, 'materials_extract', 'road_widen', 'Build a factory');
-  await choose(page, 'road_widen', 'arrivals_adapt');
-  await choose(page, 'arrivals_adapt', 'river_local', 'Adapt the community hall');
-  await page.screenshot({ path: path.join(outputDir, 'middle-expansion-1280x720.png') });
-  await choose(page, 'river_local', 'gather_clinic', 'Protect our water');
-  await choose(page, 'gather_clinic', 'capacity_expand');
-  await choose(page, 'capacity_expand', 'final_expand');
-  await choose(page, 'final_expand', null);
-  await page.locator('.ending-copy.show-actions').waitFor({ state: 'visible', timeout: 20000 });
-  await page.screenshot({ path: path.join(outputDir, 'final-expansion-1280x720.png') });
-  const state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  reports.push({ label: 'expansion final', progress: state.progress, ledger: state.ledger.length, pinebank: state.regions.pinebank, reedbank: state.regions.reedbank, corridor: state.regions.corridor });
-  await page.getByRole('button', { name: 'VIEW THE WORLD' }).click();
-  await page.getByRole('button', { name: 'Restore ending' }).waitFor();
-  await page.getByRole('button', { name: 'Restore ending' }).click();
-  await page.getByRole('button', { name: 'PLAY AGAIN' }).click();
-  await page.getByRole('button', { name: 'BEGIN DEVELOPMENT' }).waitFor();
-  const replay = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  if (replay.progress !== 5 || replay.ledger.length !== 0) throw new Error('Replay retained prior state');
-  await page.close();
-}
-
-async function carefulRun() {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, reducedMotion: 'reduce' });
-  await begin(page);
-  await choose(page, 'housing_depot', 'water_intake', 'Use the empty depot');
-  await choose(page, 'water_conservation', 'energy_grid');
-  await choose(page, 'energy_efficiency', 'materials_extract', 'Reduce evening demand');
-  await choose(page, 'materials_reclaim', 'road_bridge');
-  await choose(page, 'road_light', 'delegation_facilities');
-  await choose(page, 'delegation_facilities', 'river_local');
-  await choose(page, 'river_restore', 'gather_clinic', 'Restore the river');
-  await choose(page, 'gather_expand', 'capacity_expand');
-  await choose(page, 'capacity_shared', 'final_expand');
-  await choose(page, 'final_reuse', null);
-  await page.locator('.ending-copy.show-actions').waitFor({ state: 'visible', timeout: 20000 });
-  await page.screenshot({ path: path.join(outputDir, 'final-careful-1280x720.png') });
-  const state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  reports.push({ label: 'careful final', progress: state.progress, ledger: state.ledger.length, pinebank: state.regions.pinebank, reedbank: state.regions.reedbank, corridor: state.regions.corridor });
-  await page.close();
-}
-
-async function viewportChecks() {
-  const sizes = [[1920, 1080], [1366, 768], [1024, 600], [800, 600], [2560, 1080]];
-  for (const [width, height] of sizes) {
-    const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce' });
-    await begin(page); await assertLayout(page, `${width}x${height} gameplay`);
-    if ((width === 1024 && height === 600) || (width === 2560 && height === 1080)) {
-      await page.screenshot({ path: path.join(outputDir, `gameplay-${width}x${height}.png`) });
-    }
-    await page.close();
-  }
-}
-
-async function mixedRun() {
-  const page = await browser.newPage({ viewport: { width: 1366, height: 768 }, reducedMotion: 'no-preference' });
-  await begin(page);
-  await page.locator('#prompt-input').fill('Make the moon closer');
-  await page.locator('#prompt-input').press('Enter');
-  await page.getByText('I could not map that request').waitFor();
-  let state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  if (state.progress !== 5 || await page.locator('#prompt-input').inputValue() !== 'Make the moon closer') throw new Error('Unsupported input mutated state or was cleared');
-
-  await page.locator('#prompt-input').fill('Build homes or convert the depot');
-  await page.locator('#prompt-input').press('Enter');
-  await page.getByText('I found more than one possible method').waitFor();
-  state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  if (state.progress !== 5) throw new Error('Ambiguous input advanced the story');
-
-  await page.evaluate(() => { const button = document.querySelector('[data-action-id="housing_cottages"]'); button.click(); button.click(); });
-  await page.locator('[data-action-id="water_conservation"]').waitFor();
-  state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  if (state.progress !== 13 || state.ledger.length !== 1) throw new Error('Rapid repeat committed more than once');
-  await choose(page, 'water_conservation', 'energy_grid', 'Repair the pipes');
-
-  await page.locator('[data-action-id="energy_rooftop"]').click();
-  await page.setViewportSize({ width: 1024, height: 600 });
-  await page.locator('[data-action-id="materials_managed"]').waitFor({ timeout: 8000 });
-  await assertLayout(page, 'resize during construction');
-  await choose(page, 'materials_managed', 'road_bridge', 'Selective logging');
-  await choose(page, 'road_bridge', 'delegation_facilities');
-  await choose(page, 'delegation_connection', 'river_local', 'Connect Reedbank');
-  await choose(page, 'river_maintenance', 'gather_clinic');
-  await choose(page, 'gather_adapt', 'capacity_expand', 'Adapt the unused structure');
-  await choose(page, 'capacity_retrofit', 'final_expand');
-  await page.setViewportSize({ width: 1366, height: 768 });
-  await page.locator('[data-action-id="final_repair"]').click();
-  await page.locator('.experience[data-phase="revealing"]').waitFor({ timeout: 7000 });
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.locator('.ending-copy.show-actions').waitFor({ timeout: 25000 });
-  state = await page.evaluate(() => window.__WORLD_BEYOND__.getState());
-  if (state.progress !== 100 || state.ledger.length !== 10) throw new Error('Mixed route did not complete');
-  reports.push({ label: 'mixed route', progress: state.progress, ledger: state.ledger.length, resizedDuringConstruction: true, resizedDuringReveal: true });
-  await page.close();
 }
 
 try {
-  await expansionRun();
-  await carefulRun();
-  await mixedRun();
-  await viewportChecks();
-  console.log(JSON.stringify({ ok: true, reports }, null, 2));
-} finally {
-  await browser.close();
-}
-
+  const route = process.env.WORLD_BEYOND_ROUTE || 'all'; if (route === 'all' || route === 'one') await routeOne(); if (route === 'all' || route === 'two') await routeTwo(); if (route === 'all' || route === 'three') await routeThree(); if (route === 'all' || route === 'responsive') await responsiveChecks();
+  if (errors.length) throw new Error(`Browser console errors: ${errors.join(' | ')}`); console.log(JSON.stringify({ ok: true, reports, consoleErrors: errors }, null, 2));
+} finally { await browser.close(); }

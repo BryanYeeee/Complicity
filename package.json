@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "node scripts/dev-full.mjs",
     "build": "vite build",
-    "test": "vitest run"
+    "test": "vitest run --pool=forks --maxWorkers=1",
+    "start": "node --env-file-if-exists=.env server/civic-server.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0"

@@ -1,0 +1,50 @@
+const EFFECTS = Object.freeze({
+  housing_cottages: { kind: 'construction', region: 'settlement', location: [1740, 500], targets: ['plot-home-3', 'plot-home-4', 'plot-home-5', 'plot-home-6'], label: 'MEADOW HOMES' },
+  housing_depot: { kind: 'conversion', region: 'settlement', location: [1200, 690], targets: ['old-depot'], label: 'DEPOT CONVERSION' },
+  water_intake: { kind: 'connection', region: 'settlement', location: [1580, 570], targets: ['intake-pipe'], path: [[1480, 500], [1580, 500], [1620, 600]], label: 'WATER CONNECTION' },
+  water_conservation: { kind: 'retrofit', region: 'settlement', location: [1440, 620], targets: ['town-water-loop'], label: 'LOOP REPAIR' },
+  energy_grid: { kind: 'connection', region: 'corridor', location: [2080, 715], targets: ['town-substation', 'outer-corridor'], path: [[2080, 715], [1900, 790], [1450, 790]], label: 'GRID CONNECTION' },
+  energy_rooftop: { kind: 'retrofit', region: 'settlement', location: [1650, 490], targets: ['town-roofs'], label: 'ROOFTOP POWER' },
+  energy_efficiency: { kind: 'retrofit', region: 'settlement', location: [1430, 670], targets: ['service-hall', 'town-water-loop'], label: 'EFFICIENCY RETROFIT' },
+  materials_extract: { kind: 'extraction', region: 'pinebank', location: [920, 760], targets: ['pine-a', 'pine-b', 'pinebank-processor'], label: 'PINEBANK DELIVERIES' },
+  materials_reclaim: { kind: 'construction', region: 'pinebank', location: [930, 760], targets: ['pinebank-reclamation-yard'], label: 'RECLAIMED STOCK' },
+  materials_managed: { kind: 'extraction', region: 'pinebank', location: [930, 760], targets: ['pine-c'], label: 'MANAGED TIMBER' },
+  road_widen: { kind: 'route', region: 'reedbank', location: [2130, 810], targets: ['outer-road', 'river-reedbank'], path: [[1160, 755], [1540, 760], [1910, 785], [2260, 825]], label: 'HEAVY ROUTE' },
+  road_bridge: { kind: 'route', region: 'settlement', location: [1900, 625], targets: ['stone-bridge'], label: 'BRIDGE WORK' },
+  road_light: { kind: 'route', region: 'settlement', location: [2040, 800], targets: ['outer-road'], label: 'SERVICE ROUTE' },
+  arrivals_spare: { kind: 'relocation', region: 'reedbank', location: [1200, 690], targets: ['old-depot', 'reedbank-homes'], path: [[2680, 560], [2260, 825], [1900, 785], [1200, 690]], label: 'HOUSEHOLDS ARRIVING' },
+  arrivals_adapt: { kind: 'relocation', region: 'reedbank', location: [1430, 670], targets: ['service-hall', 'reedbank-homes'], path: [[2680, 560], [2260, 825], [1900, 785], [1430, 670]], label: 'HOUSEHOLDS ARRIVING' },
+  arrivals_compact: { kind: 'relocation', region: 'settlement', location: [2160, 520], targets: ['arrival-court', 'reedbank-homes'], label: 'COURTYARD HOMES' },
+  delegation_facilities: { kind: 'service', region: 'settlement', location: [1430, 670], targets: ['service-hall', 'reedbank-homes'], label: 'SHARED FACILITIES' },
+  delegation_connection: { kind: 'connection', region: 'reedbank', location: [2070, 760], targets: ['reedbank-service-line'], path: [[2060, 770], [2420, 800], [2810, 720]], label: 'REGIONAL SERVICE' },
+  river_local: { kind: 'retrofit', region: 'settlement', location: [1600, 585], targets: ['town-intake'], label: 'INTAKE FILTER' },
+  river_restore: { kind: 'restoration', region: 'reedbank', location: [2260, 680], targets: ['river-reedbank', 'reedbank-wetland'], label: 'WETLAND REPAIR' },
+  river_reduce_source: { kind: 'restoration', region: 'reedbank', location: [1620, 590], targets: ['town-intake', 'river-reedbank'], label: 'DIVERSION REDUCED' },
+  river_maintenance: { kind: 'restoration', region: 'reedbank', location: [2110, 675], targets: ['stone-bridge', 'reedbank-wetland'], label: 'SHARED MAINTENANCE' },
+  gather_clinic: { kind: 'construction', region: 'settlement', location: [1730, 690], targets: ['clinic-commons'], label: 'CLINIC & COMMONS' },
+  gather_expand: { kind: 'conversion', region: 'settlement', location: [1430, 670], targets: ['service-hall'], label: 'HALL EXPANSION' },
+  gather_adapt: { kind: 'conversion', region: 'settlement', location: [1200, 690], targets: ['old-depot'], label: 'PUBLIC ROOMS' },
+  capacity_expand: { kind: 'connection', region: 'corridor', location: [2080, 715], targets: ['town-utility', 'outer-corridor'], label: 'SUPPLY EXPANSION' },
+  capacity_retrofit: { kind: 'retrofit', region: 'settlement', location: [1620, 610], targets: ['town-systems'], label: 'SYSTEM RETROFIT' },
+  capacity_shared: { kind: 'connection', region: 'reedbank', location: [2070, 760], targets: ['shared-capacity'], path: [[2060, 770], [2420, 800], [2810, 720]], label: 'SHARED CAPACITY' },
+  final_expand: { kind: 'construction', region: 'settlement', location: [1970, 650], targets: ['final-pavilion', 'outer-corridor'], label: 'FINAL WORK' },
+  final_reuse: { kind: 'conversion', region: 'settlement', location: [1970, 650], targets: ['final-pavilion'], label: 'REUSE UPGRADES' },
+  final_repair: { kind: 'restoration', region: 'pinebank', location: [1120, 650], targets: ['final-pavilion', 'pinebank-restoration'], label: 'REPAIR & COMPLETION' },
+});
+
+export function effectRecord(actionId, raw, revision) {
+  const visual = EFFECTS[actionId] || { kind: 'service', region: 'settlement', location: [1640, 600], targets: raw.affectedEntityIds || [], label: 'CIVIC WORK' };
+  return {
+    effectId: `${actionId}:${revision}`,
+    actionId,
+    kind: visual.kind,
+    region: visual.region,
+    location: visual.location,
+    path: visual.path || null,
+    targets: visual.targets,
+    label: visual.label,
+    durationMs: ['construction', 'extraction', 'relocation'].includes(visual.kind) ? 1450 : 1050,
+    ...raw,
+  };
+}
+
