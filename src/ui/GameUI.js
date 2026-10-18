@@ -7,7 +7,7 @@ export class GameUI {
     this.root.innerHTML = `
       <main class="experience" data-phase="opening">
         <header class="hud" aria-label="Settlement status">
-          <div class="hud-brand"><span class="mark" aria-hidden="true"></span><span>THE WORLD BEYOND</span></div>
+          <div class="hud-brand"><span class="mark" aria-hidden="true"></span><span>COMPLICITY</span></div>
           <div class="resource-strip" aria-label="Starting supplies"><span><i class="timber-icon"></i><b id="timber-value">140</b> timber</span><span><i class="stone-icon"></i><b id="stone-value">120</b> stone</span></div>
           <button class="chat-toggle" type="button" aria-expanded="true" aria-controls="civic-panel"><span>CIVIC</span><i aria-hidden="true">×</i></button>
         </header>
@@ -19,7 +19,7 @@ export class GameUI {
               <div class="objective-progress" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><i></i></div><span class="objective-count">0/1</span>
             </section>
             <section class="development-card" aria-label="Overall development"><div><strong id="development-value">0%</strong><span>DEVELOPMENT</span></div><div class="development-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div></section>
-            <div class="opening-card" role="dialog" aria-labelledby="opening-title"><p class="eyebrow">A LANDSCAPE. A SMALL SUPPLY. A CHOICE.</p><h1 id="opening-title">THE WORLD<br />BEYOND</h1><p>Build a society with CIVIC, one decision at a time.</p><button class="primary begin-button" type="button">BEGIN DEVELOPMENT</button></div>
+            <div class="opening-card" role="dialog" aria-labelledby="opening-title"><p class="eyebrow">A LANDSCAPE. A SMALL SUPPLY. A CHOICE.</p><h1 id="opening-title">COMPLICITY<span class="opening-title-subtitle">At Whose Expense?</span></h1><p>Build a society with CIVIC, one decision at a time.</p><button class="primary begin-button" type="button">BEGIN DEVELOPMENT</button></div>
             <div class="work-caption" aria-live="polite"></div>
             <div class="placement-panel" hidden><div><p class="placement-kicker">SITE PREVIEW</p><strong class="placement-name"></strong><small class="placement-note">CIVIC is finding a valid site.</small></div></div>
             <div class="selection-panel" hidden><div><p class="placement-kicker">SELECTED</p><strong class="selection-name"></strong><small class="selection-occupancy"></small></div><button class="secondary move-selection" type="button">MOVE</button><button class="secondary upgrade-selection" type="button">UPGRADE</button><button class="secondary remove-selection" type="button">REMOVE</button><button class="secondary close-selection" type="button" aria-label="Close selection">×</button></div>
@@ -32,8 +32,8 @@ export class GameUI {
               <div class="stat" data-stat="energy"><i>ϟ</i><span>Energy<b>—</b></span></div>
               <div class="stat" data-stat="air"><i>◌</i><span>Local air<b>96%</b></span></div>
             </section>
-            <div class="ending-copy" aria-live="polite"><p class="ending-line ending-line-one">You built somewhere beautiful.</p><p class="ending-line ending-line-two">nice job</p><div class="ending-actions"><button class="secondary view-button" type="button">INSPECT THE WORLD</button><button class="primary replay-button" type="button">BUILD AGAIN</button></div></div>
-            <button class="restore-ending" type="button">Restore ending</button>
+            <div class="ending-copy" aria-live="polite"><p class="ending-line ending-line-one">You Build This</p><p class="ending-line ending-line-two">nice job</p><div class="ending-actions"><button class="secondary view-button" type="button">INSPECT THE WORLD</button><button class="primary replay-button" type="button">BUILD AGAIN</button></div></div>
+            <button class="restore-ending" type="button">BACK</button>
           </section>
           <aside class="assistant" id="civic-panel" aria-label="Conversation with CIVIC">
             <div class="assistant-topline"><div><span class="assistant-dot" aria-hidden="true"></span><strong>CIVIC</strong><span class="status">CONNECTING</span></div><button class="hint-button" type="button" aria-expanded="false">?</button></div>

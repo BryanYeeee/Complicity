@@ -64,6 +64,10 @@ function offerIntent(intent) {
   say(lead); showChoices(trimmed);
 }
 
+function objectiveIntent() {
+  return ({ shelter: 'housing', water: 'water', economy: 'trade', growth: 'housing', energy: 'energy', industry: 'industry', public: 'public' })[currentObjective(state).id] || null;
+}
+
 function renderPlacementChoices() {
   const placement = worldScene?.getPlacement(); if (!placement) return;
   if (placement.mode === 'preview') showChoices([{ kind: 'select-site', label: placement.valid ? 'Select this site' : 'Choose a valid site', disabled: !placement.valid, proposalId: placement.proposalId }, { kind: 'adjust', label: 'Try another site', proposalId: placement.proposalId }, { kind: 'cancel', label: 'Cancel', proposalId: placement.proposalId }]);
@@ -180,8 +184,11 @@ async function submitPrompt(value) {
   if (/\b(remove|demolish|clear) (that|it|the last|this)\b/.test(lower)) { await removeSelected(); return; }
   if (explicitType) { beginPlacement(explicitType, preferredFromText(lower)); return; }
   if (/\b(invite|welcome|move in|residents? arrive|people arrive)\b/.test(lower)) { const status = settlementStatus(state); if (status.vacantHousing) { say(`${status.vacantHousing} housing places are ready.`); showChoices([{ kind: 'welcome', label: 'Welcome residents' }]); } else { say('There are no vacant homes yet.'); offerIntent('housing'); } return; }
+  const intent = intentFromPrompt(lower);
+  const asksForBuildOptions = /\b(build|project|option|available|next|need|make|create|place|add|construct|recommend|suggest|help)\b/.test(lower) && /\b(what|which|where|how|can|could|should|recommend|suggest|help)\b/.test(lower);
+  if (intent && (!isQuestion(lower) || asksForBuildOptions)) { offerIntent(intent); return; }
+  if (!intent && asksForBuildOptions) { const currentIntent = objectiveIntent(); if (currentIntent) { offerIntent(currentIntent); return; } }
   const grounded = answerInvestigation(lower); if (isQuestion(lower)) { say(grounded || `${currentObjective(state).title}. ${currentObjective(state).detail}`); clearChoices(); return; }
-  const intent = intentFromPrompt(lower); if (intent) { offerIntent(intent); return; }
   if (grounded) { say(grounded); clearChoices(); return; }
   if (!activeEvent) { say('Tell me what problem you want to solve.'); clearChoices(); return; }
   const token = generation; requestController = new AbortController(); ui.setLocked(true, civic.mode === 'live' ? 'LIVE · THINKING' : 'DEMO · THINKING');

@@ -13,6 +13,8 @@ describe('server-authoritative CIVIC demo sessions', () => {
     expect(payload.generationConfig.responseFormat.text.mimeType).toBe('APPLICATION_JSON');
     expect(payload.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(1024);
     expect(payload.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+    expect(payload.systemInstruction.parts[0].text).toContain('current_need object is the only active story decision');
+    expect(payload.systemInstruction.parts[0].text).toContain('never mention the four initial households');
   });
 
   it('keeps questions read-only and commits explicit work once', async () => {
